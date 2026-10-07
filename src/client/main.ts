@@ -268,6 +268,7 @@ function startLan(): void {
     lan?.reloadMap(colliders, grid, slotBoxes, slotMeshes);
     if (lan) pushSites(lan);
   };
+  lan.curMap = mapIdx; // force host-map sync on first lobby even if unchanged
   document.getElementById('lanstart')!.onclick = () => lan?.sendStart();
   document.getElementById('matchend')!.onclick = () => {
     if (lan && lan.stayInLobby()) lan.backToLobby();

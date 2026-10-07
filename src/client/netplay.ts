@@ -35,7 +35,8 @@ export class Netplay {
   private lastSnap: EntSnap[] = [];
   private lobby: LobbyPlayer[] = [];
   private settings = { bestOf: 5, prepS: 10, lock: false, stay: true, map: 0 };
-  private curMap = -1;
+  // main sets this to its loaded map right after construct (forces host-map sync)
+  curMap = -1;
   onMapChange: ((idx: number) => Promise<void>) | null = null;
   private names = new Map<number, string>();
   private bodies = new Map<number, THREE.Group>();
@@ -252,7 +253,6 @@ export class Netplay {
       this.knownName = w.name;
     } else if (type === Msg.Lobby) {
       const lob = decLobby(buf);
-      const mapChanged = lob.settings.map !== this.settings.map;
       this.lobby = lob.players;
       this.settings = lob.settings;
       for (const p of this.lobby) this.names.set(p.id, p.name);
@@ -261,8 +261,8 @@ export class Netplay {
         const me = this.lobby.find((p) => p.name === this.knownName);
         if (me) this.myId = me.id;
       }
-      // host picked another map while waiting: load it now (fast, local)
-      if (mapChanged && !this.started && this.onMapChange && lob.settings.map !== this.curMap) {
+      // host's map wins, always: converge while waiting or between matches
+      if (this.onMapChange && lob.settings.map !== this.curMap && (!this.started || this.phase === 3)) {
         this.curMap = lob.settings.map;
         void this.onMapChange(lob.settings.map);
       }
