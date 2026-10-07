@@ -50,7 +50,9 @@ function hitsSolid(list: Collider[], grid: Grid,
     const c = list[_cand[k]];
     if (c.kind === 'ramp') {
       // wedge: check the box actually touches it, then compare feet to the
-      // surface height at the nearest point (low edge ~= walk in, tall = wall)
+      // surface height at the nearest point (low edge ~= walk in, tall = wall).
+      // NOTE: local clamped height, NOT the lofty maxY — the wedge is ankle-
+      // high at its foot and 3m at its head; maxY walled off the whole side.
       if (maxX <= c.minX || minX >= c.maxX || maxZ <= c.minZ || minZ >= c.maxZ ||
           maxY <= c.minY || minY >= c.maxY) continue;
       const h = rampHeightClamped(c, (minX + maxX) / 2, (minZ + maxZ) / 2);

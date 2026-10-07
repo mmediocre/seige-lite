@@ -4,13 +4,14 @@ import { CFG } from '../shared/config.js';
 import { buildGrid, type Collider } from '../shared/colliders.js';
 import { makePlayer, stepPlayer, type Player } from '../shared/sim.js';
 import { bindInput, clearKeys, consumeLook, makeInput } from './input.js';
-import { loadMap } from './mapLoader.js';
-import { GunRig } from './weapon.js';
+import { findMarker, hasTag, loadMap, siteLetter } from './mapLoader.js';import { GunRig } from './weapon.js';
 import { SoloMatch } from './match.js';
 import { Netplay } from './netplay.js';
 import { paintLoadout, makeSiteBeacon } from './labels.js';
 import { getBind, getInvertY, getSens, labelFor, resetBinds, setBind, setInvertY, setSens, ACTIONS } from './bindings.js';
 import { MAP_FILES, MAP_NAMES } from '../shared/maps.js';
+import { buildNav, type NavGraph } from '../shared/nav.js';
+const navCache = new Map<number, NavGraph>(); // built once per map load, reused every match
 import type { SlotBox } from './mapLoader.js';
 import type { Side } from '../shared/rounds.js';
 import { hurt } from '../shared/combat.js';
@@ -78,14 +79,19 @@ async function loadMapFile(idx: number): Promise<void> {
     scene.add(data.visuals);
     colliders = data.colliders;
     // practice boards behind attacker spawn 2 (every map has that marker)
-    const sp2 = data.markers['Spawn_Attacker_2'];
-    gun.buildTargets(colliders, sp2.x, sp2.z + 4);
+    const sp2 = findMarker(data.markers, 'Spawn_Attacker_2');
+    if (sp2) gun.buildTargets(colliders, sp2.x, sp2.z + 4);
     grid = buildGrid(colliders);
     gun.setWorld(colliders, grid);
     markers = data.markers;
     slotBoxes = data.slotBoxes;
     slotMeshes = data.destructibles;
     refreshWalkBeacons();
+    if (!navCache.has(idx)) {
+      hud.textContent = `building bot paths…`;
+      await new Promise((r) => setTimeout(r, 10)); // let the hud paint first
+      navCache.set(idx, buildNav(colliders, grid));
+    }
     void gun.loadModels(`${base}guns`); // real viewmodels; code boxes until loaded
     mapTris = data.triCount;
     mapReady = true;
@@ -108,7 +114,7 @@ document.querySelectorAll<HTMLButtonElement>('#maprow button').forEach((b) => {
 });
 
 function spawnAt(name: string): void {
-  const m = markers[name];
+  const m = findMarker(markers, name);
   if (m) {
     // markers are floor points; feet = marker + small lift
     player = makePlayer(m.x, m.y + 0.1, m.z);
@@ -148,7 +154,8 @@ document.getElementById('matchend')!.onclick = () => exitMatch();
 function startMatch(side: Side): void {
   if (!mapReady) return;
   exitMatch(); // clean slate
-  match = new SoloMatch(scene, gun, colliders, grid, markers, side, difficulty, slotBoxes, slotMeshes);
+  if (!navCache.has(mapIdx)) navCache.set(mapIdx, buildNav(colliders, grid));
+  match = new SoloMatch(scene, gun, colliders, grid, markers, side, difficulty, slotBoxes, slotMeshes, navCache.get(mapIdx)!);
   match.setHudVisible(true);
   gun.setWorld(match.world.colliders, match.world.grid);
   const sp = match.playerSpawn;
@@ -285,7 +292,7 @@ function startLan(): void {
 
 // every Objective_* marker, sorted (attack one per round, LAN + solo agree)
 function pushSites(target: { setSites: (names: string[], coords: number[]) => void }): void {
-  const names = Object.keys(markers).filter((k) => k.startsWith('Objective_')).sort();
+  const names = Object.keys(markers).filter((k) => hasTag(k, 'Objective_')).sort();
   const coords: number[] = [];
   for (const n of names) {
     const m = markers[n];
@@ -401,7 +408,7 @@ const walkBeacons: { group: THREE.Group; set: (x: number, y: number, z: number, 
 let walkBeaconKey = '';
 let walkSiteIdx = 0;
 function refreshWalkBeacons(): void {
-  const names = Object.keys(markers).filter((k) => k.startsWith('Objective_')).sort();
+  const names = Object.keys(markers).filter((k) => hasTag(k, 'Objective_')).sort();
   const key = names.join(',');
   if (key !== walkBeaconKey) {
     walkBeaconKey = key;
@@ -409,7 +416,7 @@ function refreshWalkBeacons(): void {
     for (const b of walkBeacons) scene.remove(b.group);
     walkBeacons.length = 0;
     for (const n of names) {
-      const b = makeSiteBeacon(n.split('_')[1] ?? '?');
+      const b = makeSiteBeacon(siteLetter(n));
       scene.add(b.group);
       walkBeacons.push(b);
     }

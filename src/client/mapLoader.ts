@@ -29,7 +29,30 @@ const VISUAL_PREFIX = ['Static_', 'Props_', 'Ground'];
 
 function isVisual(name: string): boolean {
   if (name === 'Ground') return true;
-  return VISUAL_PREFIX.some((p) => name.startsWith(p));
+  return VISUAL_PREFIX.some((p) => hasTag(name, p));
+}
+
+// Tag match tolerant to a modeler namespace prefix ("Vl_Col_Wall_01").
+// "_Tag" containment avoids false hits like "ColdRoom" for "Col_".
+export function hasTag(name: string, tag: string): boolean {
+  return name === tag || name.startsWith(tag) || name.includes('_' + tag);
+}
+
+// Marker lookup by base name: exact first, else any "Prefix_Base" match.
+export function findMarker(markers: Record<string, THREE.Vector3>, base: string): THREE.Vector3 | null {
+  if (markers[base]) return markers[base];
+  const suffix = '_' + base;
+  for (const k of Object.keys(markers)) {
+    if (k.endsWith(suffix)) return markers[k];
+  }
+  return null;
+}
+
+// Site letter from "Objective_X_..." regardless of namespace prefix.
+export function siteLetter(name: string): string {
+  const i = name.indexOf('Objective_');
+  if (i < 0 || i + 11 >= name.length) return '?';
+  return name[i + 11];
 }
 
 export async function loadMap(url: string): Promise<MapData> {
@@ -75,12 +98,17 @@ export function splitScene(scene: THREE.Object3D): MapData {
     const name: string = child.name || '';
     const ex = ((child as unknown as { userData?: Record<string, unknown> }).userData || {}) as Record<string, unknown>;
 
-    if (name.startsWith('Col_')) {
+    if (hasTag(name, 'Col_')) {
       const kind = String(ex['collider'] ?? 'box');
       child.updateWorldMatrix(true, false);
       child.matrixWorld.decompose(tmpP, tmpQ, tmpS);
       if (kind === 'ramp') {
         colliders.push(buildRamp(child, tmpP));
+      } else if (isWedgeMesh(child)) {
+        // custom props lost in export (happened once): a wedge in Colliders
+        // can only be a ramp — derive everything from its shape
+        console.warn(`[map] ${name}: no collider props, deriving ramp from wedge shape`);
+        colliders.push(buildRampFromShape(child));
       } else {
         // unit-cube convention: size = world scale
         const sx = Math.abs(tmpS.x), sy = Math.abs(tmpS.y), sz = Math.abs(tmpS.z);
@@ -93,7 +121,7 @@ export function splitScene(scene: THREE.Object3D): MapData {
       continue; // NEVER render colliders
     }
 
-    if (name.startsWith('Spawn_') || name.startsWith('Objective_')) {
+    if (hasTag(name, 'Spawn_') || hasTag(name, 'Objective_')) {
       child.updateWorldMatrix(true, false);
       const p = new THREE.Vector3();
       child.getWorldPosition(p);
@@ -101,14 +129,14 @@ export function splitScene(scene: THREE.Object3D): MapData {
       continue; // empties, not rendered
     }
 
-    if (name.startsWith('Reinforced_') || name.startsWith('Hatch_')) {
+    if (hasTag(name, 'Reinforced_') || hasTag(name, 'Hatch_')) {
       paint(child);
       visuals.add(child);
       destructibles.push(child);
       // self-collider from bounding box (slot gap opens when removed in M6)
       const box = new THREE.Box3().setFromObject(child);
       slotBoxes.push({
-        name, kind: name.startsWith('Hatch_') ? 'hatch' : 'wall',
+        name, kind: hasTag(name, 'Hatch_') ? 'hatch' : 'wall',
         min: [box.min.x, box.min.y, box.min.z],
         max: [box.max.x, box.max.y, box.max.z],
       });
@@ -137,7 +165,7 @@ export function splitScene(scene: THREE.Object3D): MapData {
   const sortedMeshes = order.map((i) => destructibles[i]);
   const sortedBoxes = order.map((i) => slotBoxes[i]);
   const sites = Object.keys(markers)
-    .filter((k) => k.startsWith('Objective_'))
+    .filter((k) => hasTag(k, 'Objective_'))
     .sort()
     .map((name) => ({ name, pos: markers[name] }));
 
@@ -150,6 +178,73 @@ function groupOf(ex: Record<string, unknown>, name: string) {
   if (name.includes('Floor') || name.includes('Ground')) return 'floor' as const;
   if (name.includes('Prop') || name.includes('Barrier')) return 'prop' as const;
   return 'other' as const;
+}
+
+// A Col_ mesh that is NOT the shared unit cube (8 unique verts) is a wedge
+// ramp by convention — the only other collider shape we build.
+function firstMesh(node: THREE.Object3D): THREE.Mesh | null {
+  let found: THREE.Mesh | null = null;
+  node.traverse((o: THREE.Object3D) => {
+    if (!found && (o as THREE.Mesh).isMesh) found = o as THREE.Mesh;
+  });
+  return found;
+}
+
+function uniqueWorldVerts(mesh: THREE.Mesh): THREE.Vector3[] {
+  mesh.updateWorldMatrix(true, false);
+  const pos = (mesh.geometry as THREE.BufferGeometry).getAttribute('position') as THREE.BufferAttribute;
+  const v = new THREE.Vector3();
+  const seen = new Map<string, THREE.Vector3>();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+    const k = `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
+    if (!seen.has(k)) seen.set(k, v.clone());
+  }
+  return [...seen.values()];
+}
+
+function isWedgeMesh(node: THREE.Object3D): boolean {
+  const mesh = firstMesh(node);
+  if (!mesh) return false;
+  return uniqueWorldVerts(mesh).length === 6;
+}
+
+// Full geometric ramp derivation (no custom props needed): high edge = verts
+// at max height, low edge = lowest verts farthest from it. Handles mirrors.
+function buildRampFromShape(node: THREE.Object3D): Collider {
+  const mesh = firstMesh(node)!;
+  const pts = uniqueWorldVerts(mesh);
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of pts) {
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const eps = 0.05;
+  let hx = 0, hz = 0, hn = 0;
+  for (const p of pts) {
+    if (p.y >= maxY - eps) { hx += p.x; hz += p.z; hn++; }
+  }
+  hx /= Math.max(1, hn); hz /= Math.max(1, hn);
+  let lx = 0, lz = 0, best = -1;
+  for (const p of pts) {
+    if (p.y > minY + eps) continue;
+    const d = (p.x - hx) * (p.x - hx) + (p.z - hz) * (p.z - hz);
+    if (d > best) { best = d; lx = p.x; lz = p.z; }
+  }
+  const dx = hx - lx, dz = hz - lz;
+  const runAxis: 'x' | 'z' = Math.abs(dx) >= Math.abs(dz) ? 'x' : 'z';
+  const runLow = runAxis === 'x' ? lx : lz;
+  const runHigh = runAxis === 'x' ? hx : hz;
+  const runLen = Math.abs(runHigh - runLow) || 1;
+  const rise = maxY - minY;
+  const slopeDeg = (Math.atan2(rise, runLen) * 180) / Math.PI;
+  const box = new THREE.Box3().setFromObject(node);
+  return {
+    kind: 'ramp', name: node.name || 'Col_Ramp', group: 'ramp',
+    minX: box.min.x, minY: box.min.y, minZ: box.min.z,
+    maxX: box.max.x, maxY: box.max.y, maxZ: box.max.z,
+    runAxis, runLow, runHigh, yLow: minY, yHigh: maxY, slopeDeg,
+  };
 }
 
 // Derive ramp strip from its wedge geometry + Blender rise_axis.

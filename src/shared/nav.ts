@@ -41,7 +41,8 @@ export function buildNav(list: Collider[], grid: Grid): NavGraph {
     if (c.maxX > mxx) mxx = c.maxX; if (c.maxZ > mxz) mxz = c.maxZ;
   }
   mnx -= 8; mnz -= 8; mxx += 8; mxz += 8;
-  const step = 1.0;
+  const step = 0.5; // 1.4m doors need this: coarser grids can straddle a gap
+  // with no cell center inside the passable band (alignment luck)
   const nx = Math.ceil((mxx - mnx) / step), nz = Math.ceil((mxz - mnz) / step);
   const layers = [0.05, 3.25];
   const nodes: NavNode[] = [];
@@ -65,8 +66,29 @@ export function buildNav(list: Collider[], grid: Grid): NavGraph {
     if (a < 0 || b < 0 || a === b) return;
     const dy = Math.abs(nodes[a].y - nodes[b].y);
     if (dy > 0.65) return;
-    if (!adj[a].includes(b)) adj[a].push(b);
-    if (!adj[b].includes(a)) adj[b].push(a);
+    // Swept check: the 0.7m body travels the segment, not just endpoints.
+    // A thin wall can sit exactly between two free cells. Test the center
+    // line plus ±0.25m parallels in 0.25m steps — any clear line links.
+    // (Bots steer, they don't rail-ride the center; ±0.25 covers all grid
+    // alignments for gaps ≥1.0m.)
+    const dx = nodes[b].x - nodes[a].x, dz = nodes[b].z - nodes[a].z;
+    const len = Math.hypot(dx, dz) || 1;
+    const steps = Math.max(1, Math.ceil(len / 0.25));
+    const px = -dz / len, pz = dx / len;
+    for (const off of [0, 0.25, -0.25]) {
+      let ok = true;
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        if (!isFree(list, grid,
+          nodes[a].x + dx * t + px * off, nodes[a].y, nodes[a].z + dz * t + pz * off,
+          false)) { ok = false; break; }
+      }
+      if (ok) {
+        if (!adj[a].includes(b)) adj[a].push(b);
+        if (!adj[b].includes(a)) adj[b].push(a);
+        return;
+      }
+    }
   };
   // 4-neighbour links within each layer
   for (let ix = 0; ix < nx; ix++) {

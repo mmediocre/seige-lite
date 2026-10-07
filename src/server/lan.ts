@@ -18,7 +18,7 @@ import { History, type HistEnt } from '../shared/history.js';
 import { MAP_FILES } from '../shared/maps.js';
 import { damageSlot, makeSlots, resetSlots, slotAtPoint, stepBreach, tryReinforce, type Slot } from '../shared/destruct.js';
 import { WEAPONS } from '../shared/weapons.js';
-import { splitScene } from '../client/mapLoader.js';
+import { findMarker, hasTag, splitScene } from '../client/mapLoader.js';
 import {
   ACT, BTN, GUNIDS, Msg, decChat, decFire, decHello, decInput,
   encAmmo, encBoom, encChat, encFeed, encHit, encLobby, encRound, encSnap, encWelcome,
@@ -66,7 +66,7 @@ function useMap(idx: number): void {
   grid = buildGrid(playColliders);
   markers = m.markers;
   serverSlots = makeSlots(m.slotBoxes);
-  siteCache = Object.keys(markers).filter((k) => k.startsWith('Objective_')).sort().map((k) => markers[k]);
+  siteCache = Object.keys(markers).filter((k) => hasTag(k, 'Objective_')).sort().map((k) => markers[k]);
 }
 useMap(0); // lobby default until the host picks
 
@@ -149,9 +149,11 @@ function activeSite(): THREE.Vector3 {
 }
 
 function spawnFor(p: P, slot: number): void {
+  const atk = ['Spawn_Attacker_1', 'Spawn_Attacker_2', 'Spawn_Attacker_3']
+    .map((n) => findMarker(markers, n));
   if (p.side === 0) {
-    const names = ['Spawn_Attacker_1', 'Spawn_Attacker_2', 'Spawn_Attacker_3'];
-    const m = markers[names[slot % 3]];
+    const m = atk[slot % 3] ?? atk[0];
+    if (!m) return;
     p.sim.x = m.x; p.sim.y = m.y + 0.1; p.sim.z = m.z;
     p.yaw = 0;
   } else {

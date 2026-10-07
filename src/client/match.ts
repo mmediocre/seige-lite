@@ -13,6 +13,7 @@ import { buildGrid, raycast, type Collider, type Grid } from '../shared/collider
 import { interactHint, damageSlot, makeSlots, resetSlots, slotAtPoint, stepBreach, tryReinforce, type Slot } from '../shared/destruct.js';
 import { hpColor, makeSiteBeacon, makeTextSprite, paintLoadout, type SiteBeacon, type TextSprite } from './labels.js';
 import type { SlotBox } from './mapLoader.js';
+import { findMarker, hasTag, siteLetter } from './mapLoader.js';
 import { WEAPONS } from '../shared/weapons.js';
 import type { GunRig } from './weapon.js';
 
@@ -40,8 +41,7 @@ export class SoloMatch {
   private lastMark: THREE.Mesh; // last-alive-enemy diamond (no hide-and-seek)
   private beacons: { group: THREE.Group; set: SiteBeacon['set']; tick: SiteBeacon['tick'] }[] = [];
   private siteLetter(): string {
-    const n = this.sites[this.st.teamSite]?.name ?? '';
-    return n.split('_')[1] ?? '?';
+    return siteLetter(this.sites[this.st.teamSite]?.name ?? '');
   }
   private activeSite(): THREE.Vector3 {
     return this.sites[this.st.teamSite]?.pos ?? new THREE.Vector3();
@@ -85,14 +85,15 @@ export class SoloMatch {
     difficulty: 'recruit' | 'regular',
     slotBoxes: SlotBox[],
     slotMeshes: THREE.Object3D[],
+    nav: NavGraph,
   ) {
     this.chosen = side;
     this.sites = Object.keys(markers)
-      .filter((k) => k.startsWith('Objective_'))
+      .filter((k) => hasTag(k, 'Objective_'))
       .sort()
       .map((name) => ({ name, pos: markers[name].clone() }));
     if (this.sites.length === 0) this.sites.push({ name: 'Objective_A_None', pos: new THREE.Vector3() });
-    this.nav = buildNav(colliders, grid);
+    this.nav = nav;
     // play starts with every slot OPEN: drop the self-colliders from our copy
     this.slots = makeSlots(slotBoxes);
     this.slotMeshes = slotMeshes;
@@ -155,7 +156,7 @@ export class SoloMatch {
     this.scene.add(this.lastMark);
     // one beacon per site; only the live one shows
     for (const s of this.sites) {
-      const b = makeSiteBeacon(s.name.split('_')[1] ?? '?');
+      const b = makeSiteBeacon(siteLetter(s.name));
       this.scene.add(b.group);
       this.beacons.push(b);
     }
@@ -208,8 +209,10 @@ export class SoloMatch {
   playerHp(): number { return this.entities[0].hp; }
 
   private spawnFor(slot: number, side: Side): THREE.Vector3 {
-    const atkSpots = ['Spawn_Attacker_1', 'Spawn_Attacker_2', 'Spawn_Attacker_3'];
-    if (side === 'atk') return this.markers[atkSpots[slot % 3]].clone();
+    const atkSpots = ['Spawn_Attacker_1', 'Spawn_Attacker_2', 'Spawn_Attacker_3']
+      .map((n) => findMarker(this.markers, n))
+      .filter((m): m is THREE.Vector3 => !!m);
+    if (side === 'atk') return (atkSpots[slot % Math.max(1, atkSpots.length)] ?? new THREE.Vector3()).clone();
     // defenders spawn ON the active site (whoever holds it, spreads around it)
     const s = this.activeSite();
     const off = [[1.5, 1.5], [-1.5, 1.5], [0, -2.5]][slot % 3];

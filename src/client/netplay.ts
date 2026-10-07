@@ -8,6 +8,7 @@ import { MAP_NAMES } from '../shared/maps.js';
 import { interactHint, makeSlots, type Slot } from '../shared/destruct.js';
 import { hpColor, makeSiteBeacon, makeTextSprite, paintLoadout, type SiteBeacon, type TextSprite } from './labels.js';
 import type { SlotBox } from './mapLoader.js';
+import { siteLetter } from './mapLoader.js';
 import {
   ACT, BTN, Msg, decBoom, decChat, decFeed, decHit, decLobby, decSnap, decWelcome,
   encAct, encChat, encFire, encHello, encInput, encPing,
@@ -63,15 +64,14 @@ export class Netplay {
     for (const b of this.beacons) this.scene.remove(b.group);
     this.beacons = [];
     for (const n of names) {
-      const b = makeSiteBeacon(n.split('_')[1] ?? '?');
+      const b = makeSiteBeacon(siteLetter(n));
       this.scene.add(b.group);
       this.beacons.push(b);
     }
   }
 
   private siteLetter(): string {
-    const n = this.siteNames[this.site] ?? '';
-    return n.split('_')[1] ?? '?';
+    return siteLetter(this.siteNames[this.site] ?? '');
   }
   private activeSite(): THREE.Vector3 {
     return this.sitePos[this.site] ?? this.sitePos[0] ?? new THREE.Vector3();
