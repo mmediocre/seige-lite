@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SIEGE-LITE M1</title>
+<style>
+  html,body { margin:0; height:100%; background:#111; overflow:hidden; font-family:monospace; }
+  #app { position:fixed; inset:0; }
+  canvas { display:block; }
+  #hud { position:fixed; top:8px; left:8px; color:#0f0; background:rgba(0,0,0,.55);
+         padding:6px 8px; font-size:12px; line-height:1.5; white-space:pre; z-index:10; }
+  #menu { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+          background:rgba(0,0,0,.6); z-index:20; }
+  #card { background:#1a1a1a; color:#eee; padding:24px 28px; border:1px solid #444; max-width:460px; max-height:92vh; overflow-y:auto; }
+  #card h1 { margin:0 0 8px; font-size:20px; }
+  #card p { font-size:13px; color:#bbb; }
+  #card button { margin:4px 4px 0 0; padding:8px 12px; cursor:pointer; }
+  #help { position:fixed; bottom:8px; left:8px; color:#ccc; background:rgba(0,0,0,.5);
+          padding:6px 8px; font-size:12px; z-index:10; }
+  #cross { position:fixed; left:50%; top:50%; width:0; height:0; z-index:5; }
+  #cross div { position:absolute; background:#0f0; }
+  #cross .h { left:-9px; top:-1px; width:18px; height:2px; }
+  #cross .v { left:-1px; top:-9px; width:2px; height:18px; }
+  #hitm { position:fixed; left:50%; top:50%; width:0; height:0; z-index:5; opacity:0; }
+  #hitm div { position:absolute; background:#fff; width:14px; height:2px; }
+  #hitm .a { transform:translate(-16px,-12px) rotate(45deg); }
+  #hitm .b { transform:translate(2px,-12px) rotate(-45deg); }
+  #hitm .c { transform:translate(-16px,10px) rotate(-45deg); }
+  #hitm .d { transform:translate(2px,10px) rotate(45deg); }
+  #gunbar { position:fixed; left:50%; bottom:26px; transform:translateX(-50%);
+            color:#ffd34d; background:rgba(0,0,0,.55); padding:8px 18px;
+            font-size:18px; letter-spacing:2px; z-index:10; white-space:pre; }
+  #banner { position:fixed; top:8px; left:50%; transform:translateX(-50%);
+            color:#fff; background:rgba(0,0,0,.55); padding:6px 14px;
+            font-size:14px; letter-spacing:1px; z-index:10; display:none; white-space:pre; }
+  #feed { position:fixed; top:52px; right:8px; color:#eee; background:rgba(0,0,0,.45);
+          padding:6px 10px; font-size:12px; z-index:10; display:none; text-align:right; }
+  #secure { position:fixed; left:50%; bottom:70px; transform:translateX(-50%);
+            width:220px; height:14px; background:rgba(0,0,0,.6);
+            border:1px solid #4d4; z-index:10; display:none; }
+  #securefill { height:100%; width:0%; background:#4d4; }
+  #board { position:fixed; left:50%; top:30%; transform:translateX(-50%);
+           color:#eee; background:rgba(0,0,0,.8); padding:14px 20px;
+           font-size:14px; z-index:15; display:none; }
+  #matchend { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+              background:rgba(0,0,0,.65); z-index:30; cursor:pointer; }
+  #matchend .msg { background:#1a1a1a; color:#eee; padding:24px 32px;
+                   border:1px solid #888; font-size:18px; }
+  body.hideui #hud, body.hideui #gunbar, body.hideui #interact,
+  body.hideui #banner, body.hideui #feed, body.hideui #secure,
+  body.hideui #board, body.hideui #center, body.hideui #cross,
+  body.hideui #hitm, body.hideui #loadout, body.hideui #chat,
+  body.hideui #chatrow, body.hideui #help { display:none !important; }
+  #center { position:fixed; left:50%; top:34%; transform:translate(-50%,-50%);
+            color:#fff; background:rgba(0,0,0,.55); padding:16px 30px;
+            font-size:30px; text-align:center; z-index:12; display:none;
+            letter-spacing:2px; white-space:pre; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud">loading…</div>
+<div id="cross"><div class="h"></div><div class="v"></div></div>
+<div id="hitm"><div class="a"></div><div class="b"></div><div class="c"></div><div class="d"></div></div>
+<div id="gunbar"></div>
+<div id="loadout" style="display:none; position:fixed; left:50%; bottom:110px; transform:translateX(-50%);
+     background:rgba(0,0,0,.65); padding:10px 12px; z-index:10; text-align:center;">
+  <div style="color:#ffd34d; font-size:13px; margin-bottom:6px;">PICK LOADOUT (1 = main, 2 = pistol)</div>
+  <div style="margin-bottom:6px;">
+    <button data-pri="0">Rifle</button>
+    <button data-pri="1">SMG</button>
+    <button data-pri="2">Shotgun</button>
+  </div>
+  <div>
+    <button data-sec="0">Pistol</button>
+    <button data-sec="1">MachPis</button>
+  </div>
+</div>
+<div id="interact" style="position:fixed; left:50%; bottom:64px; transform:translateX(-50%);
+     color:#8cf; font-size:15px; z-index:10; white-space:pre;"></div>
+<div id="banner"></div>
+<div id="feed"></div>
+<div id="secure"><div id="securefill"></div></div>
+<div id="board"></div>
+<div id="center"></div>
+<div id="matchend"><div class="msg"></div></div>
+<div id="lan" style="display:none; position:fixed; inset:0; align-items:center; justify-content:center; background:rgba(0,0,0,.7); z-index:25;">
+  <div style="background:#1a1a1a; color:#eee; padding:24px 28px; border:1px solid #444; min-width:300px;">
+    <h1 style="margin:0 0 8px; font-size:18px;">LAN lobby</h1>
+    <div id="lanlist" style="font-size:13px; margin-bottom:10px;">connecting…</div>
+    <div id="lansettings" style="font-size:13px; margin-bottom:10px;"></div>
+    <button id="lanstart" style="display:none; padding:8px 12px;">START MATCH</button>
+    <button id="lanback" style="padding:8px 12px;">BACK</button>
+    <p style="font-size:12px; color:#bbb;">First player in is host (sees START). Host terminal prints the LAN link.</p>
+  </div>
+</div>
+<div id="dead" style="display:none; position:fixed; inset:0; align-items:center; justify-content:center;
+     background:rgba(80,0,0,.55); z-index:30; cursor:pointer;">
+  <div style="background:#1a1a1a; color:#eee; padding:24px 32px; border:1px solid #a33; font-size:18px;">
+    YOU DIED — click to respawn
+  </div>
+</div>
+<div id="menu">
+  <div id="card">
+    <h1>SIEGE-LITE</h1>
+    <p>Map:
+      <span id="maprow">
+        <button data-map="0">House</button>
+        <button data-map="1">Big House</button>
+        <button data-map="2">Warehouse</button>
+      </span>
+    </p>
+    <p>Walk test: click a spawn to roam + shoot boards.<br>
+    WASD move · mouse1 shoot · mouse2 aim · R reload · 1/2 guns (pair below) · Q/E lean · G frag · F1 boxes · F2-F4 teleport</p>
+    <button id="sp0">Spawn attacker 1</button>
+    <button id="sp1">Spawn defender</button>
+    <button id="sp2">Objective A</button>
+    <hr>
+    <p>Solo match: 3v3 with bots, best of 5. Defenders: F reinforces open walls in prep. Attackers: hold F to breach. Tab scores (M quits).</p>
+    <button id="mAtk">Play ATTACK</button>
+    <button id="mDef">Play DEFEND</button>
+    <button id="diff">Bots: Recruit (easy)</button>
+    <hr>
+    <p>LAN: same network, open the host's link, enter a name.</p>
+    <input id="lanname" maxlength="12" value="Player" style="padding:6px; width:120px;">
+    <button id="lanside">Team: ATTACK</button>
+    <button id="langun">Gun: Rifle</button>
+    <button id="lanjoin">Join LAN</button>
+    <hr>
+    <p>Controls <button id="ctlshow">change</button></p>
+    <div id="controls" style="display:none; max-height:220px; overflow-y:auto; font-size:13px;">
+      <div>Mouse sens <input id="sens" type="range" min="0.2" max="3" step="0.1" style="width:120px;">
+        <span id="sensval"></span>
+        <label><input id="inverty" type="checkbox"> invert Y</label></div>
+      <div id="bindrows"></div>
+      <button id="bindreset">reset all</button>
+      <span style="color:#888;">arrows + C always work too</span>
+    </div>
+  </div>
+</div>
+<div id="help">Walk / solo / LAN from the menu · 1/2 guns (pair below, breaks+prep in LAN) · Q/E lean · T chat (LAN) · F reinforce/breach · X flips site (walk) · Tab scores · M quits</div>
+<div id="chat" style="position:fixed; left:8px; bottom:34px; color:#eee; font-size:13px; z-index:10;"></div>
+<div id="chatrow" style="display:none; position:fixed; left:8px; bottom:8px; z-index:15;">
+  <input id="chatinput" maxlength="64" placeholder="chat…" style="padding:6px; width:260px; font-family:monospace;">
+</div>
+<script type="module" src="/src/client/main.ts"></script>
+</body>
+</html>

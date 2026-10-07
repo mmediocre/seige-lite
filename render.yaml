@@ -1,0 +1,9 @@
+# Render deploy (free tier). Connect the repo in the Render dashboard,
+# or `render blueprint launch`. Uses the Dockerfile at repo root.
+services:
+  - type: web
+    name: siege-lite
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
