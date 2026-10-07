@@ -135,7 +135,7 @@ export class Netplay {
       }
       this.snaps.push({ tick: 0, time: 0, n: 0, ents });
     }
-    this.ws = new WebSocket(`ws://${location.host}`);
+    this.ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
     this.ws.binaryType = 'arraybuffer';
     this.ws.onopen = () => this.ws.send(encHello(name, side, gunIdx));
     this.ws.onmessage = (ev) => this.onMsg(ev.data as ArrayBuffer);
